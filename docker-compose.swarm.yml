@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  app:
+    image: counter-app:latest
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    deploy:
+      replicas: 4
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:8000/api/counter"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 40s
+      placement:
+        constraints:
+          - node.role == worker
+    ports:
+      - target: 8000
+        published: 80
+        protocol: tcp
+        mode: ingress
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_HOST=redis-master
+      - REDIS_PORT=6379
+    networks:
+      - counter-network
+
+  redis-master:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-changeme}"]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - redis_master_data:/data
+    networks:
+      - counter-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  redis-replica:
+    image: redis:7-alpine
+    command: >
+      sh -c "redis-server --slaveof redis-master 6379 
+             --masterauth ${REDIS_PASSWORD:-changeme}
+             --requirepass ${REDIS_PASSWORD:-changeme}
+             --appendonly yes"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-changeme}
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - redis_replica_data:/data
+    networks:
+      - counter-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+networks:
+  counter-network:
+    driver: overlay
+    attachable: true
+
+volumes:
+  redis_master_data:
+    driver: local
+  redis_replica_data:
+    driver: local
