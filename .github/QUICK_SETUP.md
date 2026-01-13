@@ -37,7 +37,11 @@ ssh-keygen -t rsa -b 4096 -C "github-actions" -f ~/.ssh/github_actions
 - **Имя:** `DEPLOY_PATH`
 - **Значение:** Путь на сервере для развертывания (например: `/var/www/app` или `/home/deploy/app`)
 
-### 5. SSH_KNOWN_HOSTS (опционально)
+### 5. SSH_PORT (опционально, если SSH не на порту 22)
+- **Имя:** `SSH_PORT`
+- **Значение:** Номер порта SSH (например: `2222`, `2200`). По умолчанию используется порт 22
+
+### 6. SSH_KNOWN_HOSTS (опционально)
 - **Имя:** `SSH_KNOWN_HOSTS`
 - **Значение:** Выполните `ssh-keyscan -H ВАШ_IP_СЕРВЕРА` и скопируйте вывод
 
@@ -124,3 +128,15 @@ sudo apt-get install docker-compose-plugin
 
 ### Ошибка: "docker-compose: command not found"
 - Установите Docker Compose на сервере или используйте `docker compose` (без дефиса)
+
+### Ошибка: "Connection timed out" на порту 22
+**Проблема:** Сервер недоступен из интернета или порт заблокирован.
+
+**Решения:**
+1. Убедитесь, что сервер имеет публичный IP адрес
+2. Проверьте файрвол на сервере: `sudo ufw status` или `sudo iptables -L`
+3. Разрешите SSH в файрволе: `sudo ufw allow 22/tcp`
+4. Если SSH на другом порту, добавьте секрет `SSH_PORT`
+5. Проверьте доступность сервера: `ping ВАШ_IP` и `telnet ВАШ_IP 22`
+
+**Подробнее:** См. `.github/TROUBLESHOOTING.md`

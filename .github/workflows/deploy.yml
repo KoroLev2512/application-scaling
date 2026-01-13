@@ -30,7 +30,10 @@ jobs:
             echo "::error::DEPLOY_PATH secret is not set. Please configure it in repository settings."
             exit 1
           fi
+          SSH_PORT="${{ secrets.SSH_PORT || '22' }}"
           echo "All required secrets are configured"
+          echo "Server: ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:$SSH_PORT"
+          echo "Deploy path: ${{ secrets.DEPLOY_PATH }}"
 
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -40,28 +43,58 @@ jobs:
       - name: Ensure known hosts
         run: |
           mkdir -p ~/.ssh
+          SSH_PORT="${{ secrets.SSH_PORT || '22' }}"
           if [ -n "${{ secrets.SSH_KNOWN_HOSTS }}" ]; then
             echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
             chmod 644 ~/.ssh/known_hosts
           else
             echo "SSH_KNOWN_HOSTS not set, using ssh-keyscan instead"
-            ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+            ssh-keyscan -p $SSH_PORT -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
           fi
+
+      - name: Test SSH connection
+        run: |
+          SSH_PORT="${{ secrets.SSH_PORT || '22' }}"
+          echo "Testing SSH connection to ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:$SSH_PORT"
+          timeout 10 ssh -p $SSH_PORT \
+            -o ConnectTimeout=5 \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} \
+            "echo 'SSH connection successful'" || {
+            echo "::error::SSH connection failed. Check:"
+            echo "  1. Server IP: ${{ secrets.SERVER_IP }}"
+            echo "  2. SSH Port: $SSH_PORT"
+            echo "  3. Server is running and accessible"
+            echo "  4. Firewall allows connections on port $SSH_PORT"
+            echo "  5. SSH service is running on the server"
+            exit 1
+          }
 
       - name: Sync repository to server
         env:
-          RSYNC_RSH: "ssh -o StrictHostKeyChecking=yes"  # Измените на yes
+          SSH_PORT: "${{ secrets.SSH_PORT || '22' }}"
+          RSYNC_RSH: "ssh -p ${{ secrets.SSH_PORT || '22' }} -o StrictHostKeyChecking=yes -o ConnectTimeout=10"
         run: |
           rsync -av --delete \
             --exclude='.git' \
             --exclude='node_modules' \
+            --exclude='.github' \
+            --exclude='.idea' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --timeout=30 \
             ./ \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ secrets.DEPLOY_PATH }}
 
       - name: Run docker-compose on server
+        env:
+          SSH_PORT: "${{ secrets.SSH_PORT || '22' }}"
         run: |
           ssh \
+            -p $SSH_PORT \
             -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=10 \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} \
             "cd ${{ secrets.DEPLOY_PATH }} && \
              docker-compose pull --ignore-pull-failures || true && \
