@@ -12,6 +12,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate secrets
+        run: |
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "::error::SSH_PRIVATE_KEY secret is not set. Please configure it in repository settings."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SERVER_USER }}" ]; then
+            echo "::error::SERVER_USER secret is not set. Please configure it in repository settings."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SERVER_IP }}" ]; then
+            echo "::error::SERVER_IP secret is not set. Please configure it in repository settings."
+            exit 1
+          fi
+          if [ -z "${{ secrets.DEPLOY_PATH }}" ]; then
+            echo "::error::DEPLOY_PATH secret is not set. Please configure it in repository settings."
+            exit 1
+          fi
+          echo "All required secrets are configured"
+
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
@@ -20,8 +40,13 @@ jobs:
       - name: Ensure known hosts
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts  # Не 600 — иначе rsync может не прочитать
+          if [ -n "${{ secrets.SSH_KNOWN_HOSTS }}" ]; then
+            echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+            chmod 644 ~/.ssh/known_hosts
+          else
+            echo "SSH_KNOWN_HOSTS not set, using ssh-keyscan instead"
+            ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
 
       - name: Sync repository to server
         env:
